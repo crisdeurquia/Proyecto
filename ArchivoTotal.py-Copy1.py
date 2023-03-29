@@ -486,6 +486,15 @@ for i, col_i in enumerate(cols):
         
 dataset_kmeans.show(truncate = False)
 
+#KMeans vs BisectingKMeans
+# En KMeans, se comienza definiendo un número fijo de clústeres y asignando aleatoriamente los puntos de datos a uno de ellos. 
+# Luego, se calcula el centroide de cada clúster y se reasignan los puntos de datos al clúster cuyo centroide esté más cercano. 
+# Este proceso se repite iterativamente hasta que los puntos de datos convergen a un clúster y se minimiza la suma de las distancias al cuadrado de cada punto al centroide correspondiente
+
+#BisectingKMeans comienza con un solo clúster que contiene todos los puntos de datos y
+# divide iterativamente los clústeres existentes en dos mediante la ejecución de KMeans en el clúster más grande. 
+# En cada iteración, se selecciona el clúster más grande y se aplica KMeans para dividirlo en dos. 
+# Este proceso se repite hasta que se alcanza el número deseado de clústeres.
 
 # ## Bisecting KMeans - Selección de hiperparámetros
 # BKMeans: Seleccionando hiperparametro k
@@ -498,8 +507,6 @@ silhouette = []
 cost = []
 
 dataset = dataset.repartition(15) 
-
-dataset.show( vertical= True, truncate = False)
 
 for k in nClusters:
     bkmeans = BisectingKMeans(k=k, maxIter=maxIter, distanceMeasure = distanceMeasure, seed=seed)
@@ -552,7 +559,6 @@ for dM in distanceMeasure:
     
 plot_result(cost,distanceMeasure,"distanceMeasure",'Computer_Cost',"Variación del coste según distanceMeasure")
 plot_result(silhouette,distanceMeasure,"distanceMeasure",'Silhouette',"Variación de silhouette según distanceMeasure")
-
 
 # ### Seleccionamos distanceMeasure = cosine
 
@@ -720,7 +726,6 @@ for m in maxIter:
 
 plot_result(silhouette,maxIter,"maxIter",'Silhouette',"Variación de silhouette según maxIter")
 
-
 # GMM: Seleccionando hiperparametro tol
 
 nClusters = 2
@@ -841,7 +846,6 @@ print(f'Resultado GMM óptimo: K = {model_gmm.summary.k}, SSE = {None} , Silhout
 # ## Modelo seleccionado: KMeans
 
 # # Entrenamiento
-
 # Entrenamiento y predicción
 
 kmeans = KMeans(k=4, maxIter=100, tol=1e-4, distanceMeasure = 'euclidean', seed=319869)
@@ -921,20 +925,13 @@ test = test.withColumn('anomalia_model', detectAnom(F.col('prediction'),F.col('d
 # Whitelist
 whitelist_path = '../../../whitelist/whitelist.json'
 spark.sparkContext.addFile("../../../whitelist/module/whitelist.py")
-
 # Cargar el modulo local
-
 from whitelist import Whitelist
-
 print('> Cargando whitelist')
-
 whitelist = Whitelist(whitelist_path)
 whitelistAnom = F.udf(lambda i,h: whitelistAnomalia(whitelist,i,h), BooleanType())
-
 predictions = predictions.withColumn('anomalia_whitelist', whitelistAnom(F.col('id'),F.hour(F.col('last_seen'))))
-
 print('# Whitelist cargada')
-
 predictions.select('features','anomalia_whitelist').show()
 
 # Anomalia
@@ -944,7 +941,6 @@ predictions = predictions.withColumn('anomalia', F.when(predictions.anomalia_whi
 predictions.select('features','anomalia').show()
 
 # Seleccionamos campos a visualizar
-
 only_predictions = predictions.select('version','timestamp','id','type','event'     ,'status','classic_mode','uuid','company','updated_at','last_seen','uap_lap','address','lmp_version','le_mode','manufacturer','created_at','name','anomalia')
 
 # Comienzo
