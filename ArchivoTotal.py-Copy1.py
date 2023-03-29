@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[5]:
-
-
 # Liberías
 import findspark
 findspark.init()
@@ -339,7 +336,15 @@ for dM in distanceMeasure:
     kmeans = KMeans(k=nClusters, maxIter=maxIter, tol=tol, distanceMeasure = dM, seed=seed)
     model = kmeans.fit(dataset.select('features'))
     dataset_train = model.transform(dataset)
+    #se refiere al cálculo del costo de un modelo de clustering. En el contexto del aprendizaje no supervisado,
+    # el costo se refiere a una medida de cuán lejos están los puntos de datos de sus centroides correspondientes.
+    # En otras palabras, el costo es la suma de las distancias al cuadrado de cada punto de datos a su centroide más cercano. 
+    # Por lo tanto, cuanto menor sea el costo, más compactos y cercanos estarán los grupos
     cost.append(model.computeCost(dataset_train.select('features')))
+    # La puntuación de silueta es una medida de cuán bien se separan los grupos y cuán similares son los puntos de datos dentro de cada grupo. 
+    # Se calcula para cada punto de datos como la diferencia entre la distancia media al centroide del grupo al que pertenece y la distancia media 
+    # al centroide del grupo más cercano. 
+    # La puntuación de silueta total se obtiene promediando estas diferencias para todos los puntos de datos en el conjunto de datos
     silhouette.append(ClusteringEvaluator().evaluate(dataset_train))
     print('-'*73)
     print(f'| distanceMeasure: {dM:<15} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
@@ -347,6 +352,8 @@ plot_result(cost,distanceMeasure,"distanceMeasure",'Computer_Cost',"Variación d
 plot_result(silhouette,distanceMeasure,"distanceMeasure",'Silhouette',"Variación de silhouette según distanceMeasure")
 
 # KMeans: Seleccionando hiperparametro maxIter
+# una vez decidido que vamos a utilizar el número de clúster N=4 y la distancia euclidea.
+# pasamos a dedicir que tipo de maxiIter usar
 nClusters = 4
 distanceMeasure = 'euclidean'
 maxIter = [n for n in range(100,1000,100)] 
@@ -385,8 +392,7 @@ for t in tol:
 plot_result(cost,tol,"tol",'Computer_Cost',"Variación del coste según tolerancia")
 plot_result(silhouette,tol,"tol",'Silhouette',"Variación de silhouette según tolerancia")
 
-
-get_ipython().run_cell_magic('time', '', "\n# KMeans resultado\n# KMeans \n\nkmeans = KMeans(k=5, maxIter=100, tol=1e-4, distanceMeasure = 'euclidean', seed=319869)\nmodel_kmeans = kmeans.fit(dataset.select('features'))\n\ndataset_kmeans = model_kmeans.transform(dataset)\ncost_kmeans = model_kmeans.computeCost(dataset_kmeans.select('features'))\nsilhouette_kmeans = ClusteringEvaluator().evaluate(dataset_kmeans)\n\nprint(f'Tamaño del dataset: {dataset_kmeans.count(), len(dataset_kmeans.columns)}')")
+get_ipython().run_cell_magic('time', '', "\n# KMeans resultado\n# KMeans \n\nkmeans = KMeans(k=4, maxIter=100, tol=1e-4, distanceMeasure = 'euclidean', seed=319869)\nmodel_kmeans = kmeans.fit(dataset.select('features'))\n\ndataset_kmeans = model_kmeans.transform(dataset)\ncost_kmeans = model_kmeans.computeCost(dataset_kmeans.select('features'))\nsilhouette_kmeans = ClusteringEvaluator().evaluate(dataset_kmeans)\n\nprint(f'Tamaño del dataset: {dataset_kmeans.count(), len(dataset_kmeans.columns)}')")
 
 import umap
 
@@ -453,10 +459,6 @@ for index, obj in enumerate(zip(umap_plots,umap_models)):
 
 plt.show()
 
-
-# In[ ]:
-
-
 # Mostramos parejas de características 
 
 cols = ['cos_time','sin_time','status_index','classic_mode_index','le_mode_index','lmp_version_ohe','nap_1_scaled',
@@ -481,19 +483,11 @@ for i, col_i in enumerate(cols):
         ax.set_xlabel(col_i)
         ax.set_ylabel(col_j)
         j+=1
-
-
-# In[ ]:
-
-
+        
 dataset_kmeans.show(truncate = False)
 
 
 # ## Bisecting KMeans - Selección de hiperparámetros
-
-# In[ ]:
-
-
 # BKMeans: Seleccionando hiperparametro k
 
 nClusters = [n for n in range(2,30,1)]
@@ -502,8 +496,6 @@ maxIter = 100
 seed=319869
 silhouette = []
 cost = []
-
-dataset.show( vertical= True, truncate = False)
 
 dataset = dataset.repartition(15) 
 
@@ -518,16 +510,8 @@ for k in nClusters:
     print('-'*73)
     print(f'| k: {k:<3} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
 
-
-# In[1]:
-
-
 plot_result(cost,nClusters,"nClusters",'Computer_Cost',"Variación del coste según nClusters")
 plot_result(silhouette,nClusters,"nClusters",'Silhouette',"Variación de silhouette según nClusters")
-
-
-# In[2]:
-
 
 # Punto de corte sse, silhouette
 
@@ -546,11 +530,7 @@ ax.legend(loc = 'upper center')
 
 plt.show()
 
-
 # ### Seleccionamos nClusters = 2
-
-# In[25]:
-
 
 # BKMeans: Seleccionando hiperparametro distanceMeasure
 
@@ -570,19 +550,11 @@ for dM in distanceMeasure:
     print('-'*100)
     print(f'| distanceMeasure: {dM:<15} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
     
-
-
-# In[26]:
-
-
 plot_result(cost,distanceMeasure,"distanceMeasure",'Computer_Cost',"Variación del coste según distanceMeasure")
 plot_result(silhouette,distanceMeasure,"distanceMeasure",'Silhouette',"Variación de silhouette según distanceMeasure")
 
 
 # ### Seleccionamos distanceMeasure = cosine
-
-# In[ ]:
-
 
 # BKMeans: Seleccionando hiperparametro maxIter
 
@@ -602,24 +574,12 @@ for m in maxIter:
     print('-'*80)
     print(f'| maxIter: {m:<5} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
 
-
-# In[ ]:
-
-
 plot_result(cost,maxIter,"maxIter",'Computer_Cost',"Variación del coste según maxIter")
 plot_result(silhouette,maxIter,"maxIter",'Silhouette',"Variación de silhouette según maxIter")
 
-
 # ## BKMeans - Resultado
 
-# In[ ]:
-
-
 get_ipython().run_cell_magic('time', '', "# BKMeans \n\nbkmeans = BisectingKMeans(k = 2, maxIter=100, distanceMeasure = 'cosine', seed=319869)\nmodel_bkmeans = bkmeans.fit(dataset.select('features'))\ndataset_bkmeans = model_bkmeans.transform(dataset)\ncost_bkmeans = model_bkmeans.computeCost(dataset_bkmeans.select('features'))\nsilhouette_bkmeans = ClusteringEvaluator().evaluate(dataset_bkmeans)")
-
-
-# In[ ]:
-
 
 # Diferentes visualizaciones de los clusters: PCA, ISOMAP, TSNE Y UMAP.
 
@@ -636,10 +596,6 @@ tsne_models = [TSNE(n_components=2, perplexity=per, n_iter = 5000, metric='cosin
                for per in [10,20,35,50]]
 umap_models = [umap.UMAP(n_components = n_nei, n_neighbors = n_nei, min_dist = min_dist, metric='cosine', n_jobs = -1)
                .fit_transform(features) for n_nei in [10,20,35,50] for min_dist in [0.1,0.25,0.5,0.8]]
-
-
-# In[ ]:
-
 
 # Plot de los diferentes reductores dimensionales
 
@@ -712,7 +668,6 @@ for i, col_i in enumerate(cols):
         ax.set_ylabel(col_j)
         j+=1
 
-
 # ## Gaussian Mixture Model - Selección de hiperparámnetros
 
 # GMM: Seleccionando hiperparametro k
@@ -731,8 +686,6 @@ for k in nClusters:
     silhouette.append(ClusteringEvaluator().evaluate(dataset_gmm))
     print('-'*58)
     print(f'| k: {k:<3} | WSSE: None | Silhouette: {silhouette[-1]:<20}|')
-
-
 
 plot_result(silhouette,nClusters,"nClusters",'Silhouette',"Variación de silhouette según nClusters")
 
@@ -876,7 +829,6 @@ for i, col_i in enumerate(cols):
         ax.set_ylabel(col_j)
         j+=1
 dataset_gmm.show()
-
 
 # ## Comparación de los 3 modelos
 
