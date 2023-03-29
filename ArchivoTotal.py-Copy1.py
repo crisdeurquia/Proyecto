@@ -300,7 +300,12 @@ silhouette = []
 cost = []
 for k in nClusters:
     kmeans = KMeans(k=k, maxIter=maxIter, tol=tol, distanceMeasure = distanceMeasure, seed=seed)
+    # Aquí se está aplicando el algoritmo de K-means (con los parámetros definidos previamente en el objeto kmeans) al conjunto de datos (dataset) 
+    # y se está ajustando al conjunto de características (features). 
+    # El resultado de esto es un modelo de K-means que se guarda en la variable model.
     model = kmeans.fit(dataset.select('features'))
+    #En esta línea se está aplicando el modelo K-means (model) al conjunto de datos original (dataset) 
+    # para asignar cada punto de datos al centroide más cercano
     dataset_train = model.transform(dataset)
     cost.append(model.computeCost(dataset_train.select('features')))
     silhouette.append(ClusteringEvaluator().evaluate(dataset_train))
