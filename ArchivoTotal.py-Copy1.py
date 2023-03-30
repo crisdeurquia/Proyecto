@@ -42,7 +42,7 @@ from pyspark.ml.linalg import Vectors
 from pyspark.ml.evaluation import ClusteringEvaluator
 
 
-  # Modelos de clustering 
+# Modelos de clustering 
 from pyspark.ml.clustering import KMeansModel
 from pyspark.ml.clustering import KMeans, BisectingKMeans, GaussianMixture
 from pyspark.ml.feature import  StringIndexer, VectorAssembler, MinMaxScaler, OneHotEncoder, VectorSizeHint
@@ -50,20 +50,30 @@ from pyspark.ml.feature import  StringIndexer, VectorAssembler, MinMaxScaler, On
   #Base path
 base_path='../../'
 
-  #Inicializa Sesion de PySpark
+# Inicializa Sesion de PySpark
 
-spark = SparkSession.builder.appName('Prepro').config("spark.sql.session.timeZone", "Europe/London").getOrCreate()
+spark = SparkSession.builder \
+        .appName('Prepro') \
+        .config("spark.sql.session.timeZone", "Europe/London") \
+        .getOrCreate()
 spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 
 print('> Inicializada la sesión de pyspark')
 
-  # Definición de Funciones
-  # Función de calculo de pertenencia a un cluster
+# Whitelist
+whitelist_path = '../../../whitelist/whitelist.json'
+spark.sparkContext.addFile("../../../whitelist/module/whitelist.py")
+# Cargar el modulo local
+from whitelist import Whitelist
+
+print('> Inicializada la sesión de pyspark')
+
+# Función de calculo de pertenencia a un cluster
 
 def centroid (k,centers):
     return centers[k].tolist()
 
-  # Función de calculo de distancia euclidea al centroid
+# Función de calculo de distancia euclidea al centroid
 
 def distToCentroid(datapt, centroid):
     return distance.euclidean(datapt, centroid)
@@ -79,8 +89,23 @@ def plot_result (eval,param,nameX,nameY,title):
     ax.set_ylabel(nameY)
     
     plt.show()
+    
+def round_double(val):
+    return round(val, 10)
 
-  # Definimos las funciones udf
+def anomalia (prediction, distance, threshold,limit):
+    limit = min(limit,len(threshold[prediction]) - 1)
+    if(distance > threshold[prediction][limit]):
+        return True
+    return False
+
+def whitelistAnomalia (whitelist, id_entry, hour):
+    detected = whitelist.detect_entry(id_entry,hour)
+    if detected != None:
+        return not detected
+    return detected
+    
+# Definimos las funciones udf
 
 to_array = F.udf(lambda v: v.toArray().tolist(), ArrayType(DoubleType()))
 
@@ -119,10 +144,6 @@ print('#  Dataset cargado')
 dataset= dataset.withColumn("last_seen", F.from_unixtime(F.col("last_seen"), "yyyy-MM-dd'T'HH:mm:ssXXX"))
 dataset = dataset.withColumn("created_at", F.date_format(F.col("created_at"), "yyyy-MM-dd'T'HH:mm:ssXXX"))
 dataset = dataset.withColumn("updated_at", F.date_format(F.col("updated_at"), "yyyy-MM-dd'T'HH:mm:ssXXX"))
-
-  # Eliminamos horas no comunes eliminamos de 23 a 6 y nos quedamos con las horas de 7 de la mañana a 22 de la noche
-
-dataset = dataset.filter((F.hour(dataset.last_seen) >= 7) & (F.hour(dataset.last_seen) <= 22))
 
   # Separamos en hora, minuto
   # Tomo la columna "last_seen" y extraigo la hora y el minuto a dos columnas independientes "hour_of_day" y "minute"
@@ -255,9 +276,13 @@ def round_double(val):
 round_udf = F.udf(lambda x: [round_double(val) for val in x], ArrayType(DoubleType()))
 dataset = dataset.withColumn('features', round_udf('features'))
 
+
+dataframe = dataset
+
 # selecciono algunos campos . Esta fila creo que se puede suprimir al no estar afectando realmente 
 dataset = dataset.select('uuid','company','manufacturer','name','status','classic_mode','lmp_version','le_mode','created_at','updated_at','last_seen','uap_lap','address','features')
-
+udf_foo = F.udf(lambda x:x, new_schema)
+dataset = dataset.withColumn("features",udf_foo("features"))
 
 # # Selección de modelos
 
@@ -275,6 +300,8 @@ dataset = dataset.withColumn("features",udf_foo("features"))
 
 # KMeans: Seleccionando hiperparametro k           
 feature_size = len(dataset.select('features').first()[0])
+
+dataset = dataset.repartition(1) 
 
 # Vamos a aplicar el modelo de clustering KMeans donde vamos a ir cambiando las variables y midiendo los valores de 
 # Silhouette y WSSE a ver qué parámetros utilizar.
@@ -525,8 +552,6 @@ maxIter = 100
 seed=319869
 silhouette = []
 cost = []
-
-dataset = dataset.repartition(15) 
 
 for k in nClusters:
     bkmeans = BisectingKMeans(k=k, maxIter=maxIter, distanceMeasure = distanceMeasure, seed=seed)
@@ -912,6 +937,11 @@ threshold_path = f'{base_path}StructuredStreaming/DistanceKmeans/data/thresholdB
 np.save(threshold_path, threshold_values)
 
 # # Test
+
+new_schema = ArrayType(DoubleType(), containsNull=False)
+udf_foo = F.udf(lambda x:x, new_schema)
+
+dataframe = dataframe.withColumn("features",udf_foo("features"))
              
 test = model.transform(dataset.select('features'))
 
