@@ -301,8 +301,13 @@ for k in nClusters:
     # y se está ajustando al conjunto de características (features). 
     # El resultado de esto es un modelo de K-means que se guarda en la variable model.
     model = kmeans.fit(dataset.select('features'))
-    #En esta línea se está aplicando el modelo K-means (model) al conjunto de datos original (dataset) 
+    # En esta línea(me refiero a la de abajo siempre) se está aplicando el modelo K-means (model) al conjunto de datos original (dataset) 
     # para asignar cada punto de datos al centroide más cercano
+    #  Después de realizar el clustering, se añade una columna llamada "prediction" al dataset.
+    # Esta columna indica a qué cluster pertenece cada registro en el dataset. 
+    # Por ejemplo, si el valor de "prediction" es 0, significa que ese registro pertenece al primer cluster; si es 1, 
+    # significa que pertenece al segundo cluster; y así sucesivamente. 
+    # La columna "prediction" es una columna numérica que toma valores enteros desde 0 hasta k-1, donde k es el número de clusters definido en el modelo de clustering.
     dataset_train = model.transform(dataset)
     cost.append(model.computeCost(dataset_train.select('features')))
     silhouette.append(ClusteringEvaluator().evaluate(dataset_train))
@@ -392,12 +397,22 @@ for t in tol:
 plot_result(cost,tol,"tol",'Computer_Cost',"Variación del coste según tolerancia")
 plot_result(silhouette,tol,"tol",'Silhouette',"Variación de silhouette según tolerancia")
 
+
+#Utiliza el algoritmo KMeans para agrupar los datos del dataset. 
+# El método KMeans es un algoritmo de aprendizaje no supervisado utilizado para agrupar datos en clusters. En este caso, se están utilizando los parámetros k=4, maxIter=100, tol=1e-4 y distanceMeasure = 'euclidean' 
+# Una vez que se ha realizado el clustering, se añade una columna al dataset con la predicción de a qué cluster pertenece cada registro.
+#Se calcula el coste del clustering utilizando la función computeCost del modelo KMeans.
+#Se calcula el índice de silueta para evaluar la calidad del clustering utilizando la función ClusteringEvaluator().
+#Se imprime el tamaño del dataset y el número de columnas.
+
 get_ipython().run_cell_magic('time', '', "\n# KMeans resultado\n# KMeans \n\nkmeans = KMeans(k=4, maxIter=100, tol=1e-4, distanceMeasure = 'euclidean', seed=319869)\nmodel_kmeans = kmeans.fit(dataset.select('features'))\n\ndataset_kmeans = model_kmeans.transform(dataset)\ncost_kmeans = model_kmeans.computeCost(dataset_kmeans.select('features'))\nsilhouette_kmeans = ClusteringEvaluator().evaluate(dataset_kmeans)\n\nprint(f'Tamaño del dataset: {dataset_kmeans.count(), len(dataset_kmeans.columns)}')")
 
 import umap
 
 # Diferentes visualizaciones de los clusters: PCA, ISOMAP, TSNE Y UMAP.
 
+# Primero se toma una muestra aleatoria del dataset (50% de los registros), y se extraen las características y la predicción de cada registro.
+# Luego, se utilizan los siguientes métodos para realizar las visualizaciones:
 vis_sample = 0.5
 X = dataset_kmeans.sample(vis_sample, 123)
 
@@ -413,6 +428,11 @@ umap_models = [umap.UMAP(n_components = n_nei, n_neighbors = n_nei, min_dist = m
                .fit_transform(features) for n_nei in [10,20,35,50] for min_dist in [0.1,0.25,0.5,0.8]]
 
 # Plot de los diferentes reductores dimensionales
+
+#PCA (Principal Component Analysis): se utiliza la función skPCA (PCA de scikit-learn) para reducir la dimensionalidad de los datos a 2 componentes principales, que luego se utilizan para visualizar los clusters.
+#ISOMAP (Isometric Mapping): se utilizan diferentes modelos ISOMAP para reducir la dimensionalidad de los datos a 2 componentes principales, utilizando diferentes valores de número de vecinos (n_neighbors) y métrica de distancia (euclidean).
+#TSNE (T-distributed Stochastic Neighbor Embedding): se utilizan diferentes modelos TSNE para reducir la dimensionalidad de los datos a 2 componentes principales, utilizando diferentes valores de perplejidad (perplexity), número de iteraciones (n_iter) y métrica de distancia (euclidean).
+#UMAP (Uniform Manifold Approximation and Projection): se utilizan diferentes modelos UMAP para reducir la dimensionalidad de los datos a 2 componentes principales, utilizando diferentes valores de número de vecinos (n_neighbors), distancia mínima (min_dist) y métrica de distancia (euclidean)
 
 print(f'KMeans - clases: {np.unique(Y).size} [SSE:{cost_kmeans} | Silh: {silhouette_kmeans}]') 
 
@@ -678,6 +698,8 @@ for i, col_i in enumerate(cols):
 
 # GMM: Seleccionando hiperparametro k
 
+#  "k" representa el número de grupos que se quieren formar. 
+# En este caso, el código  prueba diferentes valores de k entre 2 y 49.
 nClusters = [n for n in range(2,50,1)]
 maxIter = 100 
 tol=0.01
