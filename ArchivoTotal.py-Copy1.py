@@ -861,19 +861,25 @@ dataset_gmm.show()
 
 # Metricas
 
+# Se imprimen las métricas de evaluación de los tres modelos de clustering que se han entrenado: 
+# KMeans, BKMeans y GMM. Se imprime la cantidad de clusters (K), el SSE (sum of squared errors) y el coeficiente de silueta para cada modelo.
 print(f'Resultado KMeans óptimo: K = {model_kmeans.summary.k}, SSE = {cost_kmeans}, Silhoutte  = {silhouette_kmeans}')
 print(f'Resultado BKMeans óptimo: K = {model_bkmeans.summary.k}, SSE = {cost_bkmeans}, Silhoutte  = {silhouette_bkmeans}')
 print(f'Resultado GMM óptimo: K = {model_gmm.summary.k}, SSE = {None} , Silhoutte  = {silhouette_gmm}')
 
+
+# Escogo el de mayor Silouhette( Un coeficiente de silueta más alto indica que los clusters están mejor separados entre sí) y menor SSE ( SSE menor indica que los datos dentro de cada cluster están más cerca entre sí)
 # ## Modelo seleccionado: KMeans
 
 # # Entrenamiento
 # Entrenamiento y predicción
 
+#Se guarda el modelo entrenado en un archivo binario.
 kmeans = KMeans(k=4, maxIter=100, tol=1e-4, distanceMeasure = 'euclidean', seed=319869)
 model = kmeans.fit(dataset.select('features'))
 model_output_path = f"{base_path}StructuredStreaming/DistanceKmeans/data/distanceKmeansBtModel.bin"
 model.write().overwrite().save(model_output_path)
+#Se realiza la predicción utilizando el modelo KMeans entrenado y se añade una columna al dataset con la predicción de a qué cluster pertenece cada registro.
 train = model.transform(dataset.select('features'))
 
 # Evaluación de resultados
@@ -896,6 +902,7 @@ train = train.withColumn('centroid', vectorCent(F.col('prediction')))
 
 train = train.withColumn('distance', euclDistance(F.col('features'),F.col('centroid')))
 
+#Estas líneas de código calculan el umbral o límite a partir del cual un punto es considerado una anomalía
 threshold = train.groupBy('prediction').agg(F.sort_array(F.collect_list('distance'), asc=False).alias('distances')).orderBy('prediction')
 
 threshold.show()
@@ -910,16 +917,21 @@ test = model.transform(dataset.select('features'))
 
 # Evaluación de resultados
 
+#Se evalúan los resultados del modelo KMeans utilizando el coeficiente de silueta y el SSE.
 evaluator = ClusteringEvaluator()
 silhouette = evaluator.evaluate(test)
 computeCost = model.computeCost(test.select('features'))
 print(f'Silhouette : {silhouette}')
 print(f'SSE        : {computeCost} \n')
 
+
+#devuelve un array de vectores que representan los centroides de cada uno de los clusters. 
+# Cada vector tiene la misma dimensión que los datos de entrada que se usaron para entrenar el modelo de KMeans. 
+# En el ejemplo que se ha proporcionado, los datos de entrada tienen x dimensiones (x features).
 centers = model.clusterCenters()
 
 # Calculamos valor del centroid más cercano.
-
+#Esta columna se obtiene aplicando la función vectorCent a la columna 'prediction' del conjunto de datos de prueba. La función vectorCent recibe como parámetro el número de cluster al que pertenece cada registro y utiliza el array de centroides obtenido anteriormente para calcular el centroide correspondiente a dicho cluster.
 test = test.withColumn('centroid', vectorCent(F.col('prediction')))
 
 # Calculamos distancia al centroid más cercano.
@@ -931,6 +943,21 @@ train.groupBy('prediction').max('distance').orderBy('prediction').show(truncate=
 test.groupBy('prediction').min('distance').orderBy('prediction').show(truncate=False)
 
 limit = 0
+
+#Esta sección de código define una función llamada "anomalia" que toma como entrada 
+# El parámetro prediction es el número del cluster al que pertenece un punto de datos en particular.
+# El parámetro distance es la distancia entre ese punto de datos y el centroide del cluster al que pertenece.
+# El parámetro threshold es una matriz que contiene los umbrales para cada cluster.
+# El parámetro limit es el número máximo de umbrales que se utilizarán para determinar si un punto de datos es una anomalía.
+
+#En el código original, la columna distances de la tabla threshold contiene una lista de distancias para cada cluster, ordenada en forma descendente.
+# Luego, esta lista se convierte en un array de NumPy utilizando toPandas()['distances'].values.
+# Una vez que se tiene el array de distancias para cada cluster, se puede utilizar como umbral para detectar anomalías en los datos. 
+# La función anomalia recibe como parámetros el número de cluster prediction, la distancia del punto al centroide distance, el umbral threshold, y limit que indica hasta qué punto en la lista de distancias se va a comparar.
+# Primero, limit se establece como el mínimo entre el valor de limit y el número de elementos en la lista de distancias para el cluster prediction. Luego, si la distancia distance es mayor que la distancia en la posición limit 
+# de la lista de distancias del cluster prediction, la función devuelve True, indicando que se ha detectado una anomalía. De lo contrario, devuelve False.
+# En resumen, la función anomalia utiliza la lista de distancias para cada cluster como umbral para detectar anomalías en los datos, comparando la distancia del punto al centroide con las distancias del cluster en orden descendente hasta la posición limit.
+
 
 def anomalia (prediction, distance, threshold,limit):
     limit = min(limit,len(threshold[prediction]) - 1)
@@ -945,8 +972,16 @@ detectAnom = F.udf(lambda prediction, distance: anomalia(prediction, distance, t
 test = test.withColumn('anomalia_model', detectAnom(F.col('prediction'),F.col('distance')))
 
 # Whitelist
+#Luego, se utiliza otra función definida por el usuario 'whitelistAnom' para agregar una segunda columna de anomalías ('anomalia_whitelist') 
+# utilizando una lista blanca (whitelist) para permitir ciertos registros a pesar de que sean identificados como anomalías por el modelo.
+# Esta función toma dos argumentos: el identificador del registro ('id') y la hora de la última observación ('last_seen'). 
+# La idea detrás de esta función es que si un registro está en la lista blanca ('whitelist'), 
+# entonces no se considerará una anomalía a pesar de que el modelo haya clasificado el registro como tal.
 whitelist_path = '../../../whitelist/whitelist.json'
 spark.sparkContext.addFile("../../../whitelist/module/whitelist.py")
+# La lista blanca (whitelist) se supone que es creada y mantenida por el usuario. 
+# Es una lista de identificadores o características que se consideran "normales" o no sospechosas de anomalías, y por lo tanto, 
+# se les permite pasar a través del filtro de detección de anomalías sin ser marcadas como tales.
 # Cargar el modulo local
 from whitelist import Whitelist
 print('> Cargando whitelist')
