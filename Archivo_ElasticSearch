@@ -1,0 +1,338 @@
+es este codigo correcto: ??
+
+#!/usr/bin/env python
+# coding: utf-8
+import findspark
+findspark.init()
+imports..
+  #Base path
+base_path='../../'
+
+spark = SparkSession.builder \
+        .appName('Prepro') \
+        .config("spark.sql.session.timeZone", "Europe/London") \
+        .getOrCreate()
+spark.conf.set("spark.sql.execution.arrow.enabled", "true")
+
+def centroid (k,centers):
+    return centers[k].tolist()
+
+def distToCentroid(datapt, centroid):
+    return distance.euclidean(datapt, centroid)
+
+def plot_result (eval,param,nameX,nameY,title):
+    plt.style.use('seaborn')
+    fig,ax = plt.subplots()
+    ax.plot(param,eval)
+    ax.set_title(title)
+    ax.set_xlabel(nameX)
+    ax.set_ylabel(nameY)
+    plt.show()
+
+only_predictions = (
+    spark.readStream.format("org.elasticsearch.spark.sql")
+    .option("es.nodes","138.4.7.132")
+    .option("es.port", "9200")
+    .option("checkpointLocation", "/tmp/checkpoint3")
+    .load("bt/doc-type")
+)
+
+dataset = only_predictions.select(
+    "status",
+    "classic_mode",
+    "uuid",
+    "company",
+    "updated_at",
+    "last_seen",
+    "uap_lap",
+    "address",
+    "lmp_version",
+    "le_mode",
+    "manufacturer",
+    "created_at",
+    "name",
+)
+
+
+dataset= dataset.withColumn("last_seen", F.from_unixtime(F.col("last_seen"), "yyyy-MM-dd'T'HH:mm:ssXXX"))
+dataset = dataset.withColumn("created_at", F.date_format(F.col("created_at"), "yyyy-MM-dd'T'HH:mm:ssXXX"))
+dataset = dataset.withColumn("updated_at", F.date_format(F.col("updated_at"), "yyyy-MM-dd'T'HH:mm:ssXXX"))
+dataset = dataset.withColumn("hour_of_day", F.hour(F.col("last_seen")))
+dataset = dataset.withColumn("minute", F.minute(F.col("last_seen")))
+dataset = dataset.withColumn("cos_time", F.cos(2 * np.pi * (dataset.hour_of_day + dataset.minute / 60.0) / 24))
+dataset = dataset.withColumn("sin_time", F.sin(2 * np.pi * (dataset.hour_of_day + dataset.minute / 60.0) / 24))
+dataset = dataset.withColumn('status_index', F.when(F.col('status') == 'online', 1.0).otherwise(0.0))    
+dataset = dataset.withColumn('classic_mode_index', F.when(F.col('classic_mode') == 't', 1.0).otherwise(0.0))
+dataset = dataset.withColumn('le_mode_index', F.when(F.col('le_mode') == 't', 1.0).otherwise(0.0))
+dataset = dataset.withColumn('lmp_version_split', F.split(F.col('lmp_version'),"-").getItem(0))
+dataset = dataset.withColumn('nap_1', dataset.address.substr(1,2))
+dataset = dataset.withColumn('nap_1', F.expr('conv(nap_1, 16, 10)').cast(IntegerType()))
+dataset = dataset.withColumn('nap_2', dataset.address.substr(4,2))
+dataset = dataset.withColumn('nap_2', F.expr('conv(nap_2, 16, 10)').cast(IntegerType()))
+dataset = dataset.withColumn('uap', dataset.uap_lap.substr(1,2))
+dataset = dataset.withColumn('uap', F.expr('conv(uap, 16, 10)').cast(IntegerType()))
+dataset = dataset.withColumn('lap_1', dataset.uap_lap.substr(4,2))
+dataset = dataset.withColumn('lap_1', F.expr('conv(lap_1, 16, 10)').cast(IntegerType()))
+dataset = dataset.withColumn('lap_2', dataset.uap_lap.substr(7,2))
+dataset = dataset.withColumn('lap_2', F.expr('conv(lap_2, 16, 10)').cast(IntegerType()))
+dataset = dataset.withColumn('lap_3', dataset.uap_lap.substr(10,2))
+dataset = dataset.withColumn('lap_3', F.expr('conv(lap_3, 16, 10)').cast(IntegerType()))
+columns_to_transform = ['nap_1','nap_2','uap','lap_1','lap_2','lap_3']
+
+assemblers = [VectorAssembler(inputCols=[col], outputCol=col + "_vec", handleInvalid="skip") 
+              for col in columns_to_transform]
+scalers = [MinMaxScaler(inputCol=col + "_vec", outputCol=col + "_scaled") for col in columns_to_transform]
+sizeHints = [VectorSizeHint(inputCol=col + "_scaled", handleInvalid="skip", size = 1) for col in columns_to_transform]
+pipeline = Pipeline(stages=assemblers + scalers + sizeHints)
+minMaxScaler_Model = pipeline.fit(dataset)
+dataset = minMaxScaler_Model.transform(dataset)
+minMaxScaler_output_path = f"{base_path}StructuredStreaming/DistanceKMeans/data/minMaxScalerModel.bin"
+minMaxScaler_Model.write().overwrite().save(minMaxScaler_output_path)
+stringIndexer = StringIndexer(inputCol = 'lmp_version_split', outputCol = 'lmp_version_index', handleInvalid="skip")
+ohe = OneHotEncoder(inputCol = 'lmp_version_index', outputCol = 'lmp_version_ohe', dropLast=False)
+pipeline = Pipeline(stages = [stringIndexer, ohe])
+Ohe_Model = pipeline.fit(dataset)
+dataset = Ohe_Model.transform(dataset)
+ohe_output_path = f"{base_path}StructuredStreaming/DistanceKMeans/data/oheModel.bin"
+Ohe_Model.write().overwrite().save(ohe_output_path)
+vector_assembler = VectorAssembler(inputCols=['cos_time','sin_time','status_index','classic_mode_index','le_mode_index',                               'lmp_version_ohe','nap_1_scaled','nap_2_scaled','uap_scaled','lap_1_scaled',
+                                              'lap_2_scaled','lap_3_scaled']
+                                   ,outputCol = "features", handleInvalid="skip")
+dataset = vector_assembler.transform(dataset)
+vector_assembler_output_path = f"{base_path}StructuredStreaming/DistanceKMeans/data/vectorAssemblerModel.bin"
+vector_assembler.write().overwrite().save(vector_assembler_output_path)
+
+dataframe = dataset
+new_schema = ArrayType(DoubleType(), containsNull=False)
+udf_foo = F.udf(lambda x:x, new_schema)
+dataset = dataset.withColumn("features",udf_foo("features"))
+feature_size = len(dataset.select('features').first()[0])
+dataset = dataset.repartition(1) 
+nClusters = [n for n in range(2,10,1)]
+distanceMeasure = 'euclidean'
+maxIter = 100 
+tol=1e-4
+seed=319869
+silhouette = []
+cost = []
+for k in nClusters:
+    kmeans = KMeans(k=k, maxIter=maxIter, tol=tol, distanceMeasure = distanceMeasure, seed=seed)
+    dataset_train = model.transform(dataset)
+    cost.append(model.computeCost(dataset_train.select('features')))
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_train))
+    print('-'*73)
+    print(f'| k: {k:<3} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
+
+nClusters = 4
+distanceMeasure = 'euclidean'
+maxIter = [n for n in range(100,1000,100)] 
+tol=1e-4
+seed=319869
+silhouette = []
+cost = []
+for m in maxIter:
+    kmeans = KMeans(k=nClusters, maxIter=m, tol=tol, distanceMeasure = distanceMeasure,  seed=seed)
+    model = kmeans.fit(dataset.select('features'))
+    dataset_train = model.transform(dataset)
+    cost.append(model.computeCost(dataset_train.select('features')))
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_train))
+    print('-'*73)
+    print(f'| maxIter: {m:<5} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')           
+
+nClusters = 4
+distanceMeasure = 'euclidean'
+maxIter = 100 
+tol=[1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1]
+seed=319869
+silhouette = []
+cost = []
+for t in tol:
+    kmeans = KMeans(k=nClusters, maxIter=maxIter, tol=t, distanceMeasure = distanceMeasure, seed=seed)
+    model = kmeans.fit(dataset.select('features'))
+    dataset_train = model.transform(dataset)
+    cost.append(model.computeCost(dataset_train.select('features')))
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_train))
+    print('-'*80)
+    print(f'| tol: {t:<7} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
+get_ipython().run_cell_magic('time', '', "\n# KMeans resultado\n# KMeans \n\nkmeans = KMeans(k=4, maxIter=100, tol=1e-4, distanceMeasure = 'euclidean', seed=319869)\nmodel_kmeans = kmeans.fit(dataset.select('features'))\n\ndataset_kmeans = model_kmeans.transform(dataset)\ncost_kmeans = model_kmeans.computeCost(dataset_kmeans.select('features'))\nsilhouette_kmeans = ClusteringEvaluator().evaluate(dataset_kmeans)\n\nprint(f'Tamaño del dataset: {dataset_kmeans.count(), len(dataset_kmeans.columns)}')")
+
+
+#BisectingKMeans 
+nClusters = [n for n in range(2,30,1)]
+distanceMeasure = 'cosine'
+maxIter = 100 
+seed=319869
+silhouette = []
+cost = []
+for k in nClusters:
+    bkmeans = BisectingKMeans(k=k, maxIter=maxIter, distanceMeasure = distanceMeasure, seed=seed)
+    model = bkmeans.fit(dataset.select('features'))
+    dataset_bkmeans = model.transform(dataset)
+    cost.append(model.computeCost(dataset_bkmeans.select('features')))
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_bkmeans))
+    print('-'*73)
+    print(f'| k: {k:<3} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
+
+nClusters = 2
+distanceMeasure = ['euclidean','cosine']
+maxIter = 100 
+seed=319869
+silhouette = []
+cost = []
+for dM in distanceMeasure:
+    bkmeans = BisectingKMeans(k=nClusters, maxIter=maxIter, distanceMeasure = dM, seed=seed)
+    model = bkmeans.fit(dataset.select('features'))
+    dataset_bkmeans = model.transform(dataset)
+    cost.append(model.computeCost(dataset_bkmeans.select('features')))
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_bkmeans))
+    print('-'*100)
+    print(f'| distanceMeasure: {dM:<15} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
+    
+nClusters = 2
+distanceMeasure = 'cosine'
+maxIter = [n for n in range(100,1000,100)] 
+seed=319869
+silhouette = []
+cost = []
+for m in maxIter:
+    bkmeans = BisectingKMeans(k=nClusters, maxIter=m, distanceMeasure = distanceMeasure, seed=seed)
+    model = bkmeans.fit(dataset.select('features'))
+    dataset_bkmeans = model.transform(dataset)
+    cost.append(model.computeCost(dataset_bkmeans.select('features')))
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_bkmeans))
+    print('-'*80)
+    print(f'| maxIter: {m:<5} | WSSE: {cost[-1]:<20} | Silhouette: {silhouette[-1]:<20}|')
+
+nClusters = [n for n in range(2,50,1)]
+maxIter = 100 
+tol=0.01
+seed=319869
+silhouette = []
+for k in nClusters:
+    gmm = GaussianMixture(k=k, maxIter=maxIter, tol=tol, seed=seed)
+    model = gmm.fit(dataset.select('features'))
+    dataset_gmm = model.transform(dataset)
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_gmm))
+    print('-'*58)
+    print(f'| k: {k:<3} | WSSE: None | Silhouette: {silhouette[-1]:<20}|')
+
+nClusters = 2
+maxIter = [n for n in range(100,1000,100)] 
+tol=0.01
+seed=319869
+silhouette = []
+for m in maxIter:
+    gmm = GaussianMixture(k=nClusters, maxIter=m, tol=tol, seed=seed)
+    model = gmm.fit(dataset.select('features'))
+    dataset_gmm = model.transform(dataset)
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_gmm))
+    print('-'*58)
+    print(f'| maxIter: {m:<3} | WSSE: None | Silhouette: {silhouette[-1]:<20}|')
+
+nClusters = 2
+maxIter = 100 
+tol=[1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1]
+seed=319869
+silhouette = []
+for t in tol:
+    gmm = GaussianMixture(k=nClusters, maxIter=maxIter, tol=t, seed=seed)
+    model = gmm.fit(dataset.select('features'))
+    dataset_gmm = model.transform(dataset)
+    silhouette.append(ClusteringEvaluator().evaluate(dataset_gmm))
+    print('-'*65)
+    print(f'| tol: {t:<8} | WSSE: None | Silhouette: {silhouette[-1]:<20}|')
+
+plot_result(silhouette,tol,"tol",'Silhouette',"Variación de silhouette según tol")
+
+get_ipython().run_cell_magic('time', '', "# GMM\n\ngmm = GaussianMixture(k=2, seed=319869)\nmodel_gmm = gmm.fit(dataset.select('features'))\ndataset_gmm = model_gmm.transform(dataset)\nsilhouette_gmm = ClusteringEvaluator().evaluate(dataset_gmm)")
+
+print(f'Resultado KMeans óptimo: K = {model_kmeans.summary.k}, SSE = {cost_kmeans}, Silhoutte  = {silhouette_kmeans}')
+print(f'Resultado BKMeans óptimo: K = {model_bkmeans.summary.k}, SSE = {cost_bkmeans}, Silhoutte  = {silhouette_bkmeans}')
+print(f'Resultado GMM óptimo: K = {model_gmm.summary.k}, SSE = {None} , Silhoutte  = {silhouette_gmm}')
+
+kmeans = KMeans(k=4, maxIter=100, tol=1e-4, distanceMeasure = 'euclidean', seed=319869)
+model = kmeans.fit(dataset.select('features'))
+model_output_path = f"{base_path}StructuredStreaming/DistanceKmeans/data/distanceKmeansBtModel.bin"
+model.write().overwrite().save(model_output_path)
+train = model.transform(dataset.select('features'))
+
+evaluator = ClusteringEvaluator()
+silhouette = evaluator.evaluate(train)
+computeCost = model.computeCost(train.select('features'))
+print(f'Silhouette : {silhouette}')
+print(f'SSE        : {computeCost} \n')
+
+centers = model.clusterCenters()
+vectorCent = F.udf(lambda k: centroid(k,centers), ArrayType(DoubleType()))
+euclDistance = F.udf(lambda data,centroid: distToCentroid(data,centroid),FloatType())
+train = train.withColumn('centroid', vectorCent(F.col('prediction')))
+train = train.withColumn('distance', euclDistance(F.col('features'),F.col('centroid')))
+
+threshold = train.groupBy('prediction').agg(F.sort_array(F.collect_list('distance'), asc=False).alias('distances')).orderBy('prediction')
+
+threshold.show()
+             
+threshold_values = threshold.select('distances').toPandas()['distances'].values
+threshold_path = f'{base_path}StructuredStreaming/DistanceKmeans/data/thresholdBt.npy'
+np.save(threshold_path, threshold_values)
+new_schema = ArrayType(DoubleType(), containsNull=False)
+udf_foo = F.udf(lambda x:x, new_schema)
+
+dataframe = dataframe.withColumn("features",udf_foo("features"))
+             
+test = model.transform(dataset.select('features'))
+
+evaluator = ClusteringEvaluator()
+silhouette = evaluator.evaluate(test)
+computeCost = model.computeCost(test.select('features'))
+print(f'Silhouette : {silhouette}')
+print(f'SSE        : {computeCost} \n')
+
+centers = model.clusterCenters()
+test = test.withColumn('centroid', vectorCent(F.col('prediction')))
+test = test.withColumn('distance', euclDistance(F.col('features'),F.col('centroid')))
+train.groupBy('prediction').max('distance').orderBy('prediction').show(truncate=False)
+test.groupBy('prediction').min('distance').orderBy('prediction').show(truncate=False)
+limit = 0
+def anomalia (prediction, distance, threshold,limit):
+    limit = min(limit,len(threshold[prediction]) - 1)
+    if(distance > threshold[prediction][limit]):
+        return True
+    return False
+
+detectAnom = F.udf(lambda prediction, distance: anomalia(prediction, distance, threshold_values, limit), BooleanType())
+test = test.withColumn('anomalia_model', detectAnom(F.col('prediction'),F.col('distance')))
+
+whitelist_path = '../../../whitelist/whitelist.json'
+spark.sparkContext.addFile("../../../whitelist/module/whitelist.py")
+from whitelist import Whitelist
+whitelist = Whitelist(whitelist_path)
+whitelistAnom = F.udf(lambda i,h: whitelistAnomalia(whitelist,i,h), BooleanType())
+predictions = predictions.withColumn('anomalia_whitelist', whitelistAnom(F.col('id'),F.hour(F.col('last_seen'))))
+print('# Whitelist cargada')
+predictions.select('features','anomalia_whitelist').show()
+
+threshold = np.load('./data/thresholdBt.npy',allow_pickle=True)
+limit = 0
+predictions = predictions.withColumn('anomalia', F.when(predictions.anomalia_whitelist == True, True).otherwise(predictions.anomalia_model))
+predictions.select('features','anomalia').show()
+
+only_predictions.toPandas().to_json(today_output_path2)
+
+En resumen, lo que estás haciendo es tomar datos de una base de datos de ElasticSearch y realizar varias transformaciones y preprocesamiento con ellos. Luego, estás utilizando un modelo de clustering para identificar anomalías en los datos y almacenar los resultados en la base de datos. Para automatizar el entrenamiento de los datos, estás iterando a través de diferentes modelos de clustering y evaluando su precisión.
+Cada vez que ejecutes este sistema con distintos datos, estás dando la oportunidad a los modelos de clustering de aprender más sobre los datos y mejorar su precisión. A medida que el modelo aprende más sobre los datos, puede ajustar sus parámetros y mejorar su capacidad para identificar anomalías. Además, al iterar a través de diferentes modelos de clustering, puedes encontrar el modelo que mejor se adapte a tus datos y maximizar la precisión de tu sistema
+
+Sí, en el caso de KMeans, el ajuste de los parámetros se realiza automáticamente durante el proceso de entrenamiento del modelo. KMeans utiliza un algoritmo iterativo para asignar puntos a grupos y ajustar los centroides de cada grupo en función de los puntos asignados. Durante el proceso de iteración, el modelo aprende más sobre los datos y ajusta los parámetros hasta que se alcanza la convergencia. Por lo tanto, a medida que el modelo aprende más sobre los datos, ajusta sus parámetros para mejorar la calidad de la agrupación.
+Sí, es correcto. El algoritmo KMeans ajustará sus parámetros internos durante el proceso de entrenamiento para encontrar los centroides óptimos y, por lo tanto, los clústeres óptimos para los datos que se le proporcionan. Esto se hace a través de un proceso iterativo donde el algoritmo calcula la distancia entre los puntos de datos y los centroides y ajusta los centroides para minimizar esa distancia.
+
+Por lo tanto, aunque puedas especificar algunos parámetros como el número de clústeres que deseas, el algoritmo ajustará otros parámetros internos para mejorar la precisión del modelo.
+
+Sin embargo, es posible que hayas decidido realizar el análisis de distintos modelos para comparar su desempeño con el modelo KMeans, o para tener alternativas si en algún momento necesitas cambiar el modelo que estás utilizando en tu sistema de detección de anomalías. En este caso, podría tener sentido mantener esa parte del archivo.
+Es posible que en el futuro puedas querer probar distintos modelos de clustering y comparar su rendimiento. Por eso, es una buena práctica incluir en tu código una sección de análisis de diferentes modelos de clustering, de modo que puedas comparar los resultados y elegir el mejor modelo para tus datos.
+
+Además, aunque actualmente solo estés utilizando KMeans, en el futuro podrías querer probar otros algoritmos de clustering. En ese caso, ya tendrás una base sólida de conocimientos sobre los distintos modelos de clustering y podrás expandir tu análisis a otros algoritmos sin tener que empezar desde cero.
+
+Por último, es posible que otros desarrolladores trabajen en el mismo proyecto y quieran utilizar otros modelos de clustering. Si incluyes una sección de análisis de distintos modelos en tu código, otros desarrolladores podrán entender rápidamente cómo se llevó a cabo el análisis y probar diferentes modelos de clustering sin tener que crear una nueva sección de análisis desde cero.
+Incluir un análisis de distintos modelos de clustering es una buena práctica, ya que te permite explorar diferentes opciones y elegir la que mejor se adapte a tus necesidades. Si bien en tu caso específico solo estás utilizando el algoritmo KMeans, puede ser útil en el futuro cambiar a otro modelo de clustering si tu conjunto de datos cambia o si necesitas una mayor precisión.
+
+Además, este análisis puede ayudarte a entender mejor tus datos y a tomar decisiones más informadas sobre cómo procesarlos. Por lo tanto, incluso si no estás utilizando otros modelos de clustering en tu sistema de detección de anomalías, la investigación que has hecho puede ser útil para futuros proyectos o para mejorar tu comprensión general de la tarea de clustering.
