@@ -50,6 +50,8 @@ from pyspark.ml.feature import  StringIndexer, VectorAssembler, MinMaxScaler, On
   #Base path
 base_path='../../'
 
+
+
 # Inicializa Sesion de PySpark
 
 spark = SparkSession.builder \
@@ -60,6 +62,7 @@ spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 
 print('> Inicializada la sesión de pyspark')
 
+
 # Whitelist
 whitelist_path = '../../../whitelist/whitelist.json'
 spark.sparkContext.addFile("../../../whitelist/module/whitelist.py")
@@ -67,6 +70,8 @@ spark.sparkContext.addFile("../../../whitelist/module/whitelist.py")
 from whitelist import Whitelist
 
 print('> Inicializada la sesión de pyspark')
+
+
 
 # Función de calculo de pertenencia a un cluster
 
