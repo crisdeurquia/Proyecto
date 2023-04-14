@@ -228,12 +228,42 @@ columns_to_transform = ['nap_1','nap_2','uap','lap_1','lap_2','lap_3']
 # Escalado MinMax
 # Tomo la dirección MAC, 
 
+#Se crea una lista llamada assemblers que contiene objetos VectorAssembler para cada columna en columns_to_transform. 
+#El VectorAssembler es una herramienta que convierte una o más columnas de un conjunto de datos en un vector único. 
+#En este caso, se utiliza para crear vectores de una sola dimensión a partir de cada columna en columns_to_transform.
+
 assemblers = [VectorAssembler(inputCols=[col], outputCol=col + "_vec", handleInvalid="skip") 
               for col in columns_to_transform]
-scalers = [MinMaxScaler(inputCol=col + "_vec", outputCol=col + "_scaled") for col in columns_to_transform]
-sizeHints = [VectorSizeHint(inputCol=col + "_scaled", handleInvalid="skip", size = 1) for col in columns_to_transform]
 
+#Se crea una lista llamada scalers que contiene objetos MinMaxScaler para cada columna en columns_to_transform.
+#El MinMaxScaler es un objeto que normaliza los datos a un rango específico (por lo general, [0, 1] o [-1, 1]) para que todas las características estén en la misma escala.
+scalers = [MinMaxScaler(inputCol=col + "_vec", outputCol=col + "_scaled") for col in columns_to_transform]
+#Se crea una lista llamada sizeHints que contiene objetos VectorSizeHint para cada columna en columns_to_transform. 
+#El VectorSizeHint es una herramienta que especifica la longitud del vector de salida para cada columna. 
+#En este caso, se establece en 1 porque las columnas se convierten en vectores de una sola dimensión.
+sizeHints = [VectorSizeHint(inputCol=col + "_scaled", handleInvalid="skip", size = 1) for col in columns_to_transform]
+#Se crea un objeto Pipeline que encadena los objetos VectorAssembler, MinMaxScaler y VectorSizeHint en el orden en que aparecen en las listas assemblers, scalers y sizeHints. 
+#La Pipeline es una herramienta que permite encadenar varias transformaciones de datos en una sola estructura.
 pipeline = Pipeline(stages=assemblers + scalers + sizeHints)
+
+  """ nap_1              | 84                   
+ nap_2              | 146                  
+ uap                | 9                    
+ lap_1              | 148                  
+ lap_2              | 4                    
+ lap_3              | 114                  
+ nap_1_vec          | [84.0]               
+ nap_2_vec          | [146.0]              
+ uap_vec            | [9.0]                
+ lap_1_vec          | [148.0]              
+ lap_2_vec          | [4.0]                
+ lap_3_vec          | [114.0]              
+ nap_1_scaled       | [0.0]                
+ nap_2_scaled       | [0.0]                
+ uap_scaled         | [0.0]                
+ lap_1_scaled       | [1.0]                
+ lap_2_scaled       | [0.0]                
+ lap_3_scaled       | [0.0] """
 
 minMaxScaler_Model = pipeline.fit(dataset)
 dataset = minMaxScaler_Model.transform(dataset)
@@ -244,10 +274,22 @@ minMaxScaler_Model.write().overwrite().save(minMaxScaler_output_path)
 #  ### One Hot Encoding 
 
 # OneHotEncoding lmp_version
-
+#: Se crea un objeto de la clase StringIndexer que se utilizará para convertir los valores de una columna llamada 'lmp_version_split' en índices numéricos. 
+# Estos índices se almacenarán en una nueva columna llamada 'lmp_version_index'.
 stringIndexer = StringIndexer(inputCol = 'lmp_version_split', outputCol = 'lmp_version_index', handleInvalid="skip")
+# Se crea un objeto de la clase OneHotEncoder que se utilizará para codificar la columna de índices numéricos 'lmp_version_index' en una representación binaria de "one-hot encoding". 
+# Esta codificación se almacenará en una nueva columna llamada 'lmp_version_ohe'.
 ohe = OneHotEncoder(inputCol = 'lmp_version_index', outputCol = 'lmp_version_ohe', dropLast=False)
 
+ """lmp_version_split  | Bluetooth 4.2 (0x... 
+ lmp_version_index  | 0.0                  
+ lmp_version_ohe    | (2,[0],[1.0])  """
+ 
+"""En el ejemplo que proporcionaste, la categoría "Bluetooth 4.2 (0x..." en la columna "lmp_version_split" tiene un valor entero único de 0.0 
+en la columna "lmp_version_index". La matriz codificada One-Hot correspondiente para esta fila es [1.0, 0.0], 
+donde el valor "1.0" se encuentra en la posición 0 (la primera posición) de la matriz.Por lo tanto, 
+la entrada "lmp_version_ohe | (2,[0],[1.0])" significa que en esa fila específica, la matriz codificada One-Hot tiene una longitud de 2 
+(ya que hay dos categorías únicas en la columna "lmp_version_split"), y que la categoría en la posición 0 tiene un valor de "1.0"."""
 pipeline = Pipeline(stages = [stringIndexer, ohe])
 
 Ohe_Model = pipeline.fit(dataset)
@@ -271,9 +313,16 @@ dataset = vector_assembler.transform(dataset)
 
 vector_assembler_output_path = f"{base_path}StructuredStreaming/DistanceKMeans/data/vectorAssemblerModel.bin"
 vector_assembler.write().overwrite().save(vector_assembler_output_path)
+#  features           | (13,[0,1,3,5,10],... 
+""""El vector que se muestra en el campo 'features' es una representación comprimida de los valores de las columnas especificadas en la lista 'inputCols'
+del objeto VectorAssembler.En este caso, el vector 'features' tiene una longitud de 13 elementos, 
+lo que sugiere que se han utilizado 13 columnas para crear el vector. La salida "(13,[0,1,3,5,10],..." 
+indica que hay 13 elementos en el vector y que los valores no nulos se encuentran en las posiciones 0, 1, 3, 5 y 10.""""
 
-# Creo que esta línea es una tontería REVISAR
+# Una forma de hacerlo es utilizar la función toArray() en la columna 'features' del conjunto de datos transformado, 
+# lo que le permitiría obtener los valores completos de las características en forma de matriz.
 dataset = dataset.withColumn('features', to_array('features'))
+#  features           | [0.99939082701909... 
 
 # redondea cada vector de features para que tengan 10 decimales 
 def round_double(val):
@@ -430,7 +479,7 @@ plot_result(cost,tol,"tol",'Computer_Cost',"Variación del coste según toleranc
 plot_result(silhouette,tol,"tol",'Silhouette',"Variación de silhouette según tolerancia")
 
 
-#Utiliza el algoritmo KMeans para agrupar los datos del dataset. 
+# Utiliza el algoritmo KMeans para agrupar los datos del dataset. 
 # El método KMeans es un algoritmo de aprendizaje no supervisado utilizado para agrupar datos en clusters. En este caso, se están utilizando los parámetros k=4, maxIter=100, tol=1e-4 y distanceMeasure = 'euclidean' 
 # Una vez que se ha realizado el clustering, se añade una columna al dataset con la predicción de a qué cluster pertenece cada registro.
 #Se calcula el coste del clustering utilizando la función computeCost del modelo KMeans.
