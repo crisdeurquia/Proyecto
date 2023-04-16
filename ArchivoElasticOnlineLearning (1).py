@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[87]:
+# In[110]:
 
 
 #!/usr/bin/env python
@@ -63,7 +63,7 @@ from pyspark.ml.feature import VectorAssembler
 from pyspark.ml import PipelineModel
 
 
-# In[98]:
+# In[111]:
 
 
 #Base path
@@ -76,14 +76,14 @@ sc = spark.sparkContext
 print('> Inicializada la sesión de pyspark')
 
 
-# In[104]:
+# In[112]:
 
 
 es = Elasticsearch(['http://138.4.7.132:9200/'])
 index="bt"
 
 
-# In[105]:
+# In[113]:
 
 
 def procesarDocumento(df):
@@ -122,7 +122,7 @@ def procesarDocumento(df):
     df = aplicarClustering(df)
 
 
-# In[106]:
+# In[114]:
 
 
 def primerPreprocesado(dataset):
@@ -187,7 +187,7 @@ def primerPreprocesado(dataset):
     return dataset
 
 
-# In[107]:
+# In[115]:
 
 
 def segundoPreprocesado(dataset):
@@ -238,7 +238,7 @@ def segundoPreprocesado(dataset):
     return dataset
 
 
-# In[ ]:
+# In[116]:
 
 
 def aplicarClustering(df)
@@ -313,10 +313,10 @@ def aplicarClustering(df)
     return test
 
 
-# In[108]:
+# In[117]:
 
 
-def extraerDatos(es, index):
+""""def extraerDatos(es, index):
     query = {
         "query": {
             "match_all": {}
@@ -341,29 +341,38 @@ def extraerDatos(es, index):
        # response = es.scroll(scroll_id=scroll_id, scroll='2m')
     # scroll_id = response['_scroll_id']
         
-extraerDatos(es,index)
+extraerDatos(es,index)"""
 
 
-# In[ ]:
+# In[118]:
 
 
+es = Elasticsearch(['http://138.4.7.132:9200/'])
+index = "bt"
 
+def get_data():
+    res = es.search(index=index, body={"query": {"match_all": {}}, "size": 1})
+    hits = res['hits']['hits']
+    for hit in hits:
+        yield hit['_source']
+        
+def iteratively_process_data():
+    data_gen = get_data()
+    df = None
+    while True:
+        try:
+            doc = next(data_gen)
+            df_doc = spark.createDataFrame([doc])
+            df_doc = primerPreprocesado(df_doc)
+            df_doc = segundoPreprocesado(df_doc)
+            df_doc = aplicarClustering(df_doc)
+            if df is None:
+                df = df_doc
+            else:
+                df = df.union(df_doc)
+        except StopIteration:
+            break
+    return df
 
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
+df = iteratively_process_data()
 
